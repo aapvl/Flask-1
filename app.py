@@ -38,16 +38,18 @@ class QuoteModel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     author_id = db.Column(db.Integer, db.ForeignKey(AuthorModel.id))
     text = db.Column(db.String(255), unique=False)
+    rating = db.Column(db.Integer)
 
-    def __init__(self, author, text):
+    def __init__(self, author, text, rating=1):
         self.author_id = author.id
         self.text = text
+        self.rating = rating if 0 < rating < 6 else 1
 
     def __repr__(self):
-        return f"Quote author: {self.author}, text: {self.text}"
+        return f"Quote author: {self.author.to_dict}, text: {self.text}, rating: {self.rating}"
 
     def to_dict(self):
-        return {'id': self.id, 'author': self.author.to_dict(), 'text': self.text}
+        return {'id': self.id, 'author': self.author.to_dict(), 'text': self.text, "rating": self.rating}
 
 # QUOTES handlers
 
@@ -130,7 +132,6 @@ def get_random_quote():
 
 
 @app.route("/quotes/search", methods=["GET"])
-# TODO переделать фильтр
 def search_quotes():
     args = request.args
     author = args.get("author")
@@ -140,9 +141,9 @@ def search_quotes():
     for quote in quotes:
         quotes_dict.append(quote.to_dict())
     if None not in (author, rating):
-        filtered_list = [quote for quote in quotes_dict if quote["author"] in author and str(quote["rating"]) in rating]
+        filtered_list = [quote for quote in quotes_dict if str(quote["author"]) in author and str(quote["rating"]) in rating]
     elif author:
-        filtered_list = [quote for quote in quotes_dict if quote["author"] in author]
+        filtered_list = [quote for quote in quotes_dict if str(quote["author"]) in author]
     elif rating:
         filtered_list = [quote for quote in quotes_dict if str(quote["rating"]) in rating]
     return filtered_list
