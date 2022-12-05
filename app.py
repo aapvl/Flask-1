@@ -3,6 +3,7 @@ from flask import Flask, abort, request
 from flask_sqlalchemy import SQLAlchemy
 from pathlib import Path
 from flask_migrate import Migrate
+from sqlalchemy.orm import validates, IntegrityError
 
 BASE_DIR = Path(__file__).parent
 
@@ -43,13 +44,37 @@ class QuoteModel(db.Model):
     def __init__(self, author, text, rating=1):
         self.author_id = author.id
         self.text = text
-        self.rating = rating if 0 < rating < 6 else 1
+        self.rating = rating
+
+    @validates("rating")
+    def validate_rating(self, key, rating):
+        if 0 < rating < 6:
+            return rating
+        return ValueError("rating must be [1, 5]")
 
     def __repr__(self):
         return f"Quote author: {self.author.to_dict}, text: {self.text}, rating: {self.rating}"
 
     def to_dict(self):
-        return {'id': self.id, 'author': self.author.to_dict(), 'text': self.text, "rating": self.rating}
+        keys = QuoteModel.__table__.columns.keys()
+        values = []
+        for key in keys:
+            values.append(getattr(self, key))
+        result = dict(zip(keys, values))
+        del result["author_id"]
+        result["author"] = self.author.name
+        return result
+
+
+# @app.errorhandler()
+# TODO добавить обработчик 404
+
+# def get_object_or_404(model, object_id):
+#     obj = model.query.get(object_id)
+#     if obj is None:
+#         return f"Object with id = {object_id} not found", 404
+#     return obj
+
 
 # QUOTES handlers
 
@@ -74,13 +99,10 @@ def find_quote(quote_id):
 @app.route("/authors/<int:author_id>/quotes")
 def all_author_quotes(author_id):
     author = AuthorModel.query.get(author_id)
-    quotes = QuoteModel.query.all()
-    author_quotes = []
     if author is not None:
-        for quote in quotes:
-            if quote.author == author:
-                author_quotes.append(quote.text)
-        return f"{author.to_dict()} {author_quotes}"
+        quotes = author.quotes.all()
+        quotes = [quote.to_dict() for quote in quotes]
+        return quotes
     return f"Author with id {author_id} not found", 404
 
 
@@ -115,13 +137,12 @@ def delete(quote_id):
         db.session.delete(quote)
         db.session.commit()
         return f"Quote {quote_id} deleted"
-    return f"Quote {quote_id} not found"
+    return f"Quote {quote_id} not found", 404
 
 
 @app.route("/quotes/count")
 def quotes_count():
-    quotes_list = get_quotes()
-    return f"Number of quotes: {len(quotes_list)}"
+    return {"count": QuoteModel.query.count()}
 
 
 @app.route("/quotes/random")
@@ -183,7 +204,11 @@ def update_author(author_id):
     if author is not None:
         for key, value in data.items():
             setattr(author, key, value)
-            db.session.commit()
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+                return f"Author name must be unique", 400
         return author.to_dict()
     return f"Author with id {author_id} not found", 404
 
